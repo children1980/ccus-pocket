@@ -416,26 +416,24 @@ function callAI(scenePrompt, userContent, apiKey) {
         { role: "user", content: userContent }
       ]
     });
-    // XHR方式，兼容 edge://external-file 协议（fetch在该协议下被跨域策略阻断）
-    const data = yield new Promise(function(resolve, reject) {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "https://api.deepseek.com/chat/completions", true);
-      xhr.setRequestHeader("Content-Type", "application/json");
-      xhr.setRequestHeader("Authorization", "Bearer " + key);
-      xhr.timeout = 30000;
-      xhr.onload = function() {
-        if (xhr.status === 401) { reject(new Error("API Key \u65E0\u6548\uFF0C\u8BF7\u5728\u8BBE\u7F6E\u4E2D\u91CD\u65B0\u914D\u7F6E")); return; }
-        if (xhr.status === 0) { reject(new Error("\u7F51\u7EDC\u8FDE\u63A5\u88AB\u62D2\u7EDD\uFF0C\u8BF7\u786E\u4FDD\u5DF2\u5F00\u542F\u4E92\u8054\u7F51\uFF08\u5F53\u524D\u534F\u8BAE\uFF1A" + location.protocol + "\uFF09")); return; }
-        if (xhr.status < 200 || xhr.status >= 300) { reject(new Error("HTTP " + xhr.status)); return; }
-        try { resolve(JSON.parse(xhr.responseText)); }
-        catch(_e) { reject(new Error("\u54CD\u5E94\u89E3\u6790\u5931\u8D25: " + xhr.responseText.slice(0, 80))); }
-      };
-      xhr.onerror = function() {
-        reject(new Error("\u7F51\u7EDC\u9519\u8BEF\uFF08\u5F53\u524D\u534F\u8BAE: " + location.protocol + "\uFF09\u3002\u8BF7\u5728\u652F\u6301\u8DE8\u6E90\u7684\u6D4F\u89C8\u5668\u4E2D\u6253\u5F00\u6B64\u6587\u4EF6"));
-      };
-      xhr.ontimeout = function() { reject(new Error("\u8BF7\u6C42\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u8FDE\u63A5")); };
-      xhr.send(payload);
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    let res;
+    try {
+      res = yield fetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+        body: payload,
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    if (!res.ok) {
+      if (res.status === 401) throw new Error("API Key \u65E0\u6548\uFF0C\u8BF7\u5728\u8BBE\u7F6E\u4E2D\u91CD\u65B0\u914D\u7F6E");
+      throw new Error("HTTP " + res.status);
+    }
+    const data = yield res.json();
     const raw = data.choices[0].message.content;
     const s = raw.indexOf("{");
     const e = raw.lastIndexOf("}");
